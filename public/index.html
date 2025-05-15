@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Analysis Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .query-box {
+            margin-bottom: 20px;
+        }
+        #queryInput {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .analysis-container {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            color: #666;
+        }
+        .analysis-content {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>System Analysis Dashboard</h1>
+        
+        <div class="query-box">
+            <input type="text" id="queryInput" placeholder="Enter your analysis query (e.g., 'Analyze system performance')">
+            <button onclick="analyze()">Analyze</button>
+        </div>
+
+        <div class="loading" id="loading">
+            Analyzing system data...
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="analysis-container" id="analysisContainer" style="display: none;">
+            <div class="analysis-header">
+                <span id="queryDisplay"></span>
+                <span id="timestamp"></span>
+            </div>
+            <div class="analysis-content" id="analysisContent"></div>
+        </div>
+    </div>
+
+    <script>
+        async function analyze() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                showError('Please enter a query');
+                return;
+            }
+
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const analysisContainer = document.getElementById('analysisContainer');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            analysisContainer.style.display = 'none';
+
+            try {
+                const response = await fetch('http://localhost:3001/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+                
+                if (data.status === 200 && data.data && data.data[0]) {
+                    document.getElementById('queryDisplay').textContent = data.data[0].query;
+                    document.getElementById('timestamp').textContent = new Date(data.data[0].timestamp).toLocaleString();
+                    document.getElementById('analysisContent').textContent = data.data[0].analysis;
+                    analysisContainer.style.display = 'block';
+                } else {
+                    showError(data.error || 'Failed to get analysis');
+                }
+            } catch (err) {
+                showError('Error: ' + err.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function showError(message) {
+            const error = document.getElementById('error');
+            error.textContent = message;
+            error.style.display = 'block';
+        }
+
+        // Allow Enter key to trigger analysis
+        document.getElementById('queryInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                analyze();
+            }
+        });
+    </script>
+</body>
+</html> 

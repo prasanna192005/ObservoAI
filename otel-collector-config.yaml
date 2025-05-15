@@ -1,0 +1,112 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  
+  # Simplify the resource processor to pass through attributes
+  resource:
+    attributes:
+      - key: service.name
+        action: insert
+        value: "banking-services"
+  
+  # Add memory limiter to prevent OOM issues during anomaly spikes
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  
+  metricstransform:
+    transforms:
+      - include: "bank.http_request_duration_seconds"
+        action: update
+        new_name: "api_latency_second"
+      - include: "bank.route_latency_seconds"
+        action: update
+        new_name: "api_latency_second"
+      - include: "bank.cross_service_latency_seconds"
+        action: update
+        new_name: "api_latency_second"
+
+exporters:
+  # Simplified Elasticsearch exporter configuration for traces
+  elasticsearch/traces:
+    endpoints:
+      - "http://elasticsearch:9200"
+    traces_index: "traces-bank"
+    # Set very conservative timeout values
+    timeout: 120s
+    tls:
+      insecure: true
+  
+  # Simplified Elasticsearch exporter configuration for logs
+  elasticsearch/logs:
+    endpoints:
+      - "http://elasticsearch:9200"
+    logs_index: "banking-logs"
+    # Set very conservative timeout values
+    timeout: 120s
+    tls:
+      insecure: true
+    # Remove the problematic mapping section
+  
+  # Prometheus exporter for metrics - enhanced for anomaly detection
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: bank
+    send_timestamps: true
+    metric_expiration: 180m
+    enable_open_metrics: true
+    resource_to_telemetry_conversion:
+      enabled: true
+  
+  # Add Loki exporter for logs
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+    tls:
+      insecure: true
+  
+  # Add Tempo exporter for traces
+  otlp/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+  
+  # Debug exporter with more verbose options
+  logging:
+    verbosity: detailed
+    sampling_initial: 1
+    sampling_thereafter: 1
+
+service:
+  # Enable telemetry collection for the collector itself
+  telemetry:
+    logs:
+      level: debug
+      development: true
+      encoding: console
+    metrics:
+      level: detailed
+      address: 0.0.0.0:8888
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [elasticsearch/traces, otlp/tempo, logging]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, metricstransform, batch, resource]
+      exporters: [prometheus, logging]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [elasticsearch/logs, loki, logging] 

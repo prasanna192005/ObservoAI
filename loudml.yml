@@ -1,0 +1,23 @@
+storage:
+  path: /var/lib/loudml
+
+sources:
+  prometheus:
+    type: prometheus
+    url: http://prometheus:9090
+    retention: 7d
+
+models:
+  - name: api_latency_anomaly
+    type: anomaly
+    features:
+      - name: api_latency
+        measurement: api_latency_second
+        field: value
+        metric: avg
+        default: 0
+    bucket_interval: 1m
+    span: 1h
+    min_threshold: 0.1
+    max_threshold: 0.9
+    anomaly_type: both 

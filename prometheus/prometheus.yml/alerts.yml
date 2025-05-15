@@ -1,0 +1,43 @@
+groups:
+- name: observability_alerts
+  rules:
+  - alert: HighAPILatency
+    expr: histogram_quantile(0.95, sum(rate(api_latency_second_bucket{service="customer-api"}[5m])) by (le, service, http_route)) > 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High latency in Customer API {{ $labels.http_route }}"
+      description: "95th percentile latency for {{ $labels.http_route }} is {{ $value }} seconds."
+  - alert: CustomerAPIErrorRate
+    expr: rate(bank_errors_total{service="customer-api"}[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High error rate in Customer API"
+      description: "Error rate is {{ $value }} errors/second for Customer API."
+  - alert: LokiIngestionErrors
+    expr: rate(loki_ingester_chunks_flushed_total{status="failed"}[5m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Loki ingestion errors"
+      description: "Loki failed to ingest {{ $value }} chunks in the last 5 minutes."
+  - alert: OTelCollectorLogExportErrors
+    expr: rate(otelcol_exporter_send_failed_logs[5m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "OpenTelemetry Collector log export errors"
+      description: "Collector failed to export {{ $value }} logs in the last 5 minutes."
+  - alert: HighContainerCPU
+    expr: rate(container_cpu_usage_seconds_total{container="customer-api"}[5m]) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU usage in Customer API"
+      description: "CPU usage is above 80%."

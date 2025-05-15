@@ -1,0 +1,234 @@
+version: '3'
+services:
+  # Prometheus for metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - elastic
+      
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3005:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=marcusolsson-json-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+      - gemini-service
+    networks:
+      - elastic
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Gemini Service for AI-powered analysis
+  gemini-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gemini-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+    networks:
+      - elastic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/test"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.92.0
+    container_name: otel-collector
+    restart: always
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133:13133" # Health check extension
+    networks:
+      - elastic
+    depends_on:
+      - loki
+      - tempo
+
+  # Banking Services
+  # Customer API (Cloud Environment)
+  customer-api:
+    image: node:20
+    container_name: customer-api
+    working_dir: /app
+    volumes:
+      - ./banking-services:/app
+    command: bash -c "cd /app && npm install && node customer-api/server.js"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - otel-collector
+    networks:
+      - elastic
+    environment:
+      - NODE_ENV=development
+
+  # Customer Service (Cloud Environment)
+  customer-service:
+    image: node:20
+    container_name: customer-service
+    working_dir: /app
+    volumes:
+      - ./banking-services:/app
+    command: bash -c "cd /app && npm install && node customer-service/server.js"
+    ports:
+      - "3003:3003"
+    depends_on:
+      - otel-collector
+    networks:
+      - elastic
+    environment:
+      - NODE_ENV=development
+      - ACCOUNT_SERVICE_URL=http://account-service:3002
+
+  # Account Service (Hybrid Environment)
+  account-service:
+    image: node:20
+    container_name: account-service
+    working_dir: /app
+    volumes:
+      - ./banking-services:/app
+    command: bash -c "cd /app && npm install && node account-service/server.js"
+    ports:
+      - "3002:3002"
+    depends_on:
+      - otel-collector
+      - customer-service
+    networks:
+      - elastic
+    environment:
+      - NODE_ENV=development
+      - CUSTOMER_SERVICE_URL=http://customer-service:3003
+
+  # Transaction Service (On-Premises Environment)
+  transaction-service:
+    image: node:20
+    container_name: transaction-service
+    working_dir: /app
+    volumes:
+      - ./banking-services:/app
+    command: bash -c "cd /app && npm install && node transaction-service/server.js"
+    ports:
+      - "3004:3004"
+    depends_on:
+      - otel-collector
+      - account-service
+    networks:
+      - elastic
+    environment:
+      - NODE_ENV=development
+      - ACCOUNT_SERVICE_URL=http://account-service:3002
+      
+  # Load-tester service
+  load-tester:
+    image: node:20
+    container_name: load-tester
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: bash -c "npm install && node load-tester.js"
+    depends_on:
+      - customer-api
+      - customer-service
+      - account-service
+      - transaction-service
+    networks:
+      - elastic
+    environment:
+      - CUSTOMER_API_URL=http://customer-api:3000
+      - ACCOUNT_SERVICE_URL=http://account-service:3002
+      - TRANSACTION_SERVICE_URL=http://transaction-service:3004
+    # Start this manually when needed:
+    # docker-compose up load-tester
+    profiles:
+      - tools
+
+  # Loki for log storage
+  loki:
+    image: grafana/loki:3.4.3
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - elastic
+
+  # Tempo for trace storage
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo-config.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo/tempo-config.yaml
+    ports:
+      - "3200:3200"  # tempo
+    networks:
+      - elastic
+
+  # Loud ML for anomaly detection
+  loudml:
+    image: loudml/loudml:latest
+    container_name: loudml
+    ports:
+      - "8077:8077"
+    volumes:
+      - ./loudml-data:/var/lib/loudml
+      - ./loudml.yml:/etc/loudml/config.yml
+    networks:
+      - elastic
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  loudml-data:
+    driver: local
+
+networks:
+  elastic:
+    driver: bridge
